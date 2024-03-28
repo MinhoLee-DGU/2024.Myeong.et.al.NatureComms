@@ -1,0 +1,113 @@
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+library(pylr)
+
+# Road cellranger count processed data
+CERVIX1 = Read10X('./CERVIX1/outs/filtered_feature_bc_matrix')
+CERVIX2 = Read10X('./CERVIX2/outs/filtered_feature_bc_matrix')
+
+CERVIX1 = CreateSeuratObject(counts = CERVIX1, project = "CERVIX1", min.features = 200, min.cells = 3)
+CERVIX2 = CreateSeuratObject(counts = CERVIX2, project = "CERVIX2", min.features = 200, min.cells = 3)
+
+## Embed scrublet results in seurat object
+# CERVIX1
+doublet.file <- "../CERVIX1/scrublet.doublet_scores_obs.txt"
+doublet.df <- read.table(doublet.file , header = F, sep = "\t")
+colnames(doublet.df) <- c("barcodes", "scores", "threshold")
+doublet.df$Doublet <- "singlet"
+doublet.df$Doublet[doublet.df$scores > doublet.df$threshold] <- "doublet"
+doublet.df$barcodes <- do.call(rbind, strsplit(x = as.character(doublet.df$barcodes), split = "\\-"))
+metadata = data.frame(barcodes = rownames(CERVIX1@meta.data), CERVIX1@meta.data)
+metadata$barcodes = do.call(rbind, strsplit(rownames(metadata), split = '\\-'))
+test <- join(metadata, doublet.df, by = "barcodes")
+CERVIX1@meta.data$Doublet <- test$Doublet
+
+# CERVIX2
+doublet.file <- "../CERVIX2/scrublet.doublet_scores_obs.txt"
+doublet.df <- read.table(doublet.file , header = F, sep = "\t")
+colnames(doublet.df) <- c("barcodes", "scores", "threshold")
+doublet.df$Doublet <- "singlet"
+doublet.df$Doublet[doublet.df$scores > doublet.df$threshold] <- "doublet"
+doublet.df$barcodes <- do.call(rbind, strsplit(x = as.character(doublet.df$barcodes), split = "\\-"))
+metadata = data.frame(barcodes = rownames(CERVIX2@meta.data), CERVIX2@meta.data)
+metadata$barcodes = do.call(rbind, strsplit(rownames(metadata), split = '\\-'))
+test <- join(metadata, doublet.df, by = "barcodes")
+CERVIX2@meta.data$Doublet <- test$Doublet
+
+# Integration 
+cervix = merge(CERVIX1, CERVIX2)
+cervix <- subset(x = cervix, subset = Doublet == "singlet")
+cervix[["percent.mt"]] <- PercentageFeatureSet(cervix, pattern = "^MT-")
+VlnPlot(object = cervix, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+cervix <- subset(x = cervix, subset = nFeature_RNA > 200 & percent.mt < 25)
+
+cervix.list <- SplitObject(cervix, split.by = "orig.ident")
+cervix.list <- lapply(X = cervix.list, FUN = function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
+cervix.anchors <- FindIntegrationAnchors(object.list = cervix.list, anchor.features = features)
+cervix <- IntegrateData(anchorset = cervix.anchors)
+
+DefaultAssay(cervix) <- "integrated"
+cervix <- ScaleData(cervix, verbose = FALSE,vars.to.regress= c("percent.mt"))
+cervix <- RunPCA(cervix, verbose = FALSE)
+
+#Find proper PCs
+pct <- cervix[["pca"]]@stdev / sum(cervix[["pca"]]@stdev) * 100
+cumu <- cumsum(pct)
+co1 <- which(cumu > 90 & pct < 5)[1]
+co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = T)[1] + 1
+pcs <- min(co1, co2)
+plot_df <- data.frame(pct = pct, cumu = cumu, rank = 1:length(pct))
+
+ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) +
+  geom_text() +
+  geom_vline(xintercept = 90, color = "grey") +
+  geom_hline(yintercept = min(pct[pct > 5]), color = "grey") +
+  theme_bw()
+
+# Dims
+cervix <- RunUMAP(cervix, dims = 1:15)
+cervix <- FindNeighbors(cervix, dims = 1:15)
+cervix <- FindClusters(cervix, resolution = 0.5)
+
+# Cell cycle gene scoring
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+cervix <- CellCycleScoring(cervix, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+DimPlot(cervix, group.by='Phase', reduction='umap',label=T)
+
+# Same processes after cell cycle scoring (For regressing cell cycle batch)
+cervix <- ScaleData(cervix, verbose = FALSE,vars.to.regress= c("percent.mt","S.Score","G2M.Score")))
+cervix <- RunPCA(cervix, verbose = FALSE)
+
+pct <- cervix[["pca"]]@stdev / sum(cervix[["pca"]]@stdev) * 100
+cumu <- cumsum(pct)
+co1 <- which(cumu > 90 & pct < 5)[1]
+co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = T)[1] + 1
+pcs <- min(co1, co2)
+plot_df <- data.frame(pct = pct, cumu = cumu, rank = 1:length(pct))
+
+ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) +
+  geom_text() +
+  geom_vline(xintercept = 90, color = "grey") +
+  geom_hline(yintercept = min(pct[pct > 5]), color = "grey") +
+  theme_bw()
+
+cervix <- RunUMAP(cervix, dims = 1:13)
+cervix <- FindNeighbors(cervix, dims = 1:13)
+cervix <- FindClusters(cervix, resolution = 0.2)
+
+# Assign cell type annotation to each cluster
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==0] <- 'Epithelial'
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==1] <- 'Epithelial'
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==2] <- 'Epithelial'
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==3] <- 'Epithelial'
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==4] <- 'Epithelial'
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==5] <- 'Immune'
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==6] <- 'Immune'
+cervix@meta.data$celltype[cervix@meta.data$seurat_clusters==7] <- 'Endothelial'
+
