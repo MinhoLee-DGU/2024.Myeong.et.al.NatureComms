@@ -1,0 +1,63 @@
+# Monocle2
+library(monocle)
+cds <- as.CellDataSet(epithelial)
+cds <- estimateSizeFactors(cds)
+cds <- estimateDispersions(cds)
+Idents(epithelial)<-epithelial@meta.data$celltype
+deg <- FindAllMarkers(object = epithelial, only.pos = T, min.pct = 0.25, logfc.threshold = 0.25)
+deg <- deg[which(deg$cluster %in% unique(epithelial$celltype)),]
+sel.gene <- unique(deg$gene)
+cds <- monocle::setOrderingFilter(cds, sel.gene)
+cds <- monocle::reduceDimension(cds, method = 'DDRTree')
+cds <- monocle::orderCells(cds)
+monocle::plot_cell_trajectory(cds, color_by = Idents(epithelial)) +theme(legend.position = 'right')+ scale_color_manual(breaks = c("Basal", "Proliferating I", "Proliferating II","Suprabasal I","Suprabasal II"), values=c("#FF6666", "#CCCC66", "#00CC66","#00CCFF","#FF66FF"))
+monocle::plot_cell_trajectory(cds, color_by = "Pseudotime") +theme(legend.position = 'right')+theme(legend.text=element_text(size=20))+theme(legend.title=element_text(size=20),axis.text=element_text(size=20),axis.title=element_text(size=20))
+
+# Slingshot
+library(SingleCellExperiment)
+library(destiny)
+library(scater)
+library(clusterExperiment)
+library(gam)
+library(corrplot)
+library(ggplot2)
+library(ggthemes)
+library(ggbeeswarm)
+library(dplyr)
+library(cowplot)
+library(RColorBrewer)
+library(knitr)
+library(slingshot)
+library(scales)
+
+cell_pal <- function(cell_vars, pal_fun,...) {
+  if (is.numeric(cell_vars)) {
+    pal <- pal_fun(100, ...)
+    return(pal[cut(cell_vars, breaks = 100)])
+  } else {
+    categories <- sort(unique(cell_vars))
+    pal <- setNames(pal_fun(length(categories), ...), categories)
+    return(pal[cell_vars])
+  }
+}
+
+cell_colors_clust <- cell_pal(Idents(epithelial), hue_pal())
+sds <- slingshot(Embeddings(epithelial, "umap"), clusterLabels = epithelial$celltype, start.clus = 'Basal')
+plot(Embeddings(epithelial,"umap"), col = cell_colors_clust, pch = 16, cex = 0.5)
+lines(SlingshotDataSet(sds), lwd = 2, type = 'curves', col = 'black', show.constraints = T)
+pt <- slingPseudotime(sds)
+pt = pt %>% as.data.frame()
+epithelial@meta.data$Lineage1 = pt$Lineage1
+epithelial@meta.data$Lineage2 = pt$Lineage2
+
+ggplot(epithelial@meta.data, aes(x = Lineage1, y = celltype, colour = celltype)) +
+    geom_quasirandom(groupOnX = FALSE) +
+    scale_color_tableau('red') + theme_classic() +
+    xlab("Slingshot pseudotime") + ylab("Timepoint") +
+    ggtitle("Cells ordered by Slingshot pseudotime curve1")
+
+ggplot(epithelial@meta.data, aes(x = Lineage2, y = celltype, colour = celltype)) +
+    geom_quasirandom(groupOnX = FALSE) +
+    scale_color_tableau('red') + theme_classic() +
+    xlab("Slingshot pseudotime") + ylab("Timepoint") +
+    ggtitle("Cells ordered by Slingshot pseudotime curve2")
