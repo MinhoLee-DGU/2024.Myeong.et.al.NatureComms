@@ -1,0 +1,43 @@
+# sample info
+CERVIX1 : human cervix sample data 1
+CERVIX2 : human cervix sample data 2
+
+# Align fastq read files to GRCh38 reference genome
+cellranger count --id=CERVIX1 --fastqs=../CERVIX1/fastq files --sample=CERVIX1 --transcriptome=../GRCh38ref/
+cellranger count --id=CERVIX2 --fastqs=../CERVIX2/fastq files --sample=CERVIX2 --transcriptome=../GRCh38ref/
+
+# Scrublet in python (remove doublet cells)
+import sys
+import os
+import scrublet as scr
+import scipy.io
+import numpy as np
+import pandas as pd
+from os.path import expanduser
+
+home = expanduser("~")
+input_dir = '../#CERVIX1-2/outs/filtered_feature_bc_matrix'
+out_dir = '../#CERVIX1-2'
+
+counts_matrix = scipy.io.mmread(input_dir + '/matrix.mtx').T.tocsc()
+genes = np.array(scr.load_genes(input_dir + '/features.tsv', delimiter = '\t', column = 1))
+barcodes = np.loadtxt(input_dir + '/barcodes.tsv', dtype = 'str')
+
+scrub = scr.Scrublet(counts_matrix, expected_doublet_rate = 0.06)
+doublet_scores, predicted_doublets = scrub.scrub_doublets(min_counts = 2, min_cells = 3, min_gene_variability_pctl = 85, n_prin_comps = 30)
+
+scrub_obs = pd.DataFrame({ "barcodes" : barcodes, "doublet_scores_obs" : scrub.doublet_scores_obs_, "threshold" : scrub.threshold_})
+scrub_sim = pd.DataFrame({ "doublet_scores_sim" : scrub.doublet_scores_sim_, "threshold" : scrub.threshold_})
+
+scrub_obs.to_csv(out_dir + "/scrublet.doublet_scores_obs.txt", index = False, header = None, sep = "\t")
+scrub_sim.to_csv(out_dir + "/scrublet.doublet_scores_sim.txt", index = False, header = None, sep = "\t")
+
+# Scrublet in R (remove doublet cells)
+cellranger.dir = '../#CERVIX1-2/outs/filtered_feature_bc_matrix'
+scrublet.script <- '../run_scrublet.py'
+outdir <- "../#CERVIX1-2"
+
+system(paste("../anaconda3/bin/python", scrublet.script, cellranger.dir, outdir, sep = " "))
+
+db.score <- read.table(file = paste0(outdir, "/scrublet.doublet_scores_obs.txt"), header = F, sep = "\t")
+colnames(db.score) <- c("barcodes", "scores", "threshold")
