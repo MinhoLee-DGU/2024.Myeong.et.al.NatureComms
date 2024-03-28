@@ -1,0 +1,10 @@
+## UMAP projection
+# Clustering by celltype names
+DimPlot(mouse_epithelial, group.by='celltype',label = T, label.size = 5) + NoLegend()
+
+# UMAP expression plot of representative epithelial basal cell marker genes
+FeaturePlot(mouse_epithelial, features = c('Krt15','Trp63','Mki67','Cdc20','Krt1','Sbsn'), raster = F, order = T)
+
+# Violin plot (Cell Surface Markers)
+VlnPlot(mouse_epithelial,features='ITGB4',pt.size=0,idents='celltype')
+VlnPlot(mouse_epithelial,features='CD24',pt.size=0,idents='celltype')
