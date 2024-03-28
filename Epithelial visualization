@@ -1,0 +1,107 @@
+## UMAP projection
+# Clustering by celltype names
+DimPlot(epithelial, group.by='celltype',label = T, label.size = 5) + NoLegend()
+
+## Heat map
+# Obtain cell type specific Differentially expressed genes.
+epithelialDEGs <- FindAllMarkers(object = epithelial, only.pos = T, min.pct = 0.25, logfc.threshold = 0.25)
+
+DoHeatmap(object = epithelial, features = c('CXCL14','KRT19','KRT15','COL17A1','DCN','CENPF','MKI67','HMGB2','TOP2A','TUBA1B','HIST1H4C','PTTG1','UBE2C','LY6D','MT1X','LGALS7','DEFB1','KRT5','S100A9','S100A8','SPRR3','KRTDAP','KRT6C')) 
++NoLegend()
++theme(text = element_text(size = 15))
+
+# UMAP expression plot of representative epithelial basal cell marker genes
+FeaturePlot(epithelial, features = c('KRT14','TP63','MKI67','CDC20','KRT1','SBSN'), raster = F, order = T)
+
+# Volcano plot (Basal vs Suprabasal DEGs)
+topDEGs <- read.xlsx('../BvsS_topDEGs.xlsx', header = T)
+ggplot(data=topDEGs, aes(x=avg_log2FC, y=-log10(p_val_adj), col=diffexpressed)) +
+        geom_point(size=2,alpha=0.5) + 
+        theme_minimal() +
+        scale_color_manual(values=c("blue", "black", "red")) +
+        geom_vline(xintercept=c(-1, 1), col="gray",linetype='dashed') +
+        geom_hline(yintercept=-log10(0.05), col="gray",linetype='dashed')+
+        NoLegend()+
+        labs(title='DEGs - Suprabasal vs Basal', x= 'Log2(fold change)', y='-Log10(P-value)') +
+  theme(axis.title = element_text(size=15),
+        plot.title = element_text(size=20, hjust =0.5, face='bold', family = 'Arial'),
+        axis.text = element_text(size = 10)) +
+        geom_text_repel(data=head(plzplz4,10),aes(label=delabel),max.overlaps=10,size=4.7,color='red')+
+        geom_text_repel(data=tail(plzplz4,10),aes(label=delabel),max.overlaps=10,size=4.7,color='blue')
+
+# GSEA bar plot (Basal vs Suprabasal DEGs) by HALLMARK, REACTOME collections
+HALLMARK_basal <- read.xlsx('../HALLMARK_basal.xlsx', header = T)
+  ggplot(data= HALLMARK_basal, aes(reorder(NAME,NES),NES)) + geom_bar(stat = 'identity',aes(fill="NOM.p.val")) + 
+  scale_fill_viridis_c() +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+ labs(title = 'HALLMARK pathways - Basal',x='')+coord_flip() +labs(fill='P-value')+scale_fill_gradient(low="red", high="blue") + theme(axis.text = element_text(size = 12),title=element_text(size=15))
+
+REACTOME_suprabasal <- read.xlsx('../REACTOME_suprabasal.xlsx', header = T)
+  ggplot(data= REACTOME_suprabasal, aes(reorder(NAME,NES),NES)) + geom_bar(stat = 'identity',aes(fill="NOM.p.val")) + 
+  scale_fill_viridis_c() +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+ labs(title = 'REACTOME pathways - Suprabasal',x='')+coord_flip() +labs(fill='P-value')+scale_fill_gradient(low="red", high="blue") + theme(axis.text = element_text(size = 12),title=element_text(size=15))
+
+# UMAP expression plot of representative cell surface marker genes
+FeaturePlot(epithelial, features = 'ITGB4', raster = F, order = T)
+FeaturePlot(epithelial, features = 'BCAM', raster = F, order = T)
+FeaturePlot(epithelial, features = 'CD24', raster = F, order = T)
+FeaturePlot(epithelial, features = 'CD55', raster = F, order = T)
+FeaturePlot(epithelial, features = 'CD9', raster = F, order = T)
+
+# Violin plot of representative cell surface marker genes
+VlnPlot(epithelial, features = 'ITGB4', idents = 'celltype', pt.size = 0)
+VlnPlot(epithelial, features = 'BCAM', idents = 'celltype', pt.size = 0)
+VlnPlot(epithelial, features = 'CD24', idents = 'celltype', pt.size = 0)
+VlnPlot(epithelial, features = 'CD55', idents = 'celltype', pt.size = 0)
+VlnPlot(epithelial, features = 'CD9', idents = 'celltype', pt.size = 0)
+
+# Dot chart
+topDEGs <- read.xlsx('../BvsS_topDEGs.xlsx', header = T)
+ggdotchart(topDEGs, x = "genes", y = "avg_log2FC",
+           color = "diffexpressed",                                
+           palette = c("#00AFBB","#FC4E07"),
+           add = "segments",                           
+           add.params = list(color = "lightgray", size = 2), 
+           group = "diffexpressed",                                
+           dot.size = 13, sorting='ascending',                              
+           label = round(plzplz4$avg_log2FC,1),                     
+           font.label = list(color = "white", size = 13,
+                             vjust = 0.5),               
+           ggtheme = theme_pubr()                     
+           )+
+  geom_hline(yintercept = 0, linetype = 2, color = "lightgray")
+
+## Violin plot (Basal vs Suprabasal DEGs)
+# Subset only basal and suprabasal cells
+basal_epithelial <- subset(x = epithelial, subset = celltype == c('Basal','Suprabasal'))
+Idents(basal_epithelial) <- basal_epithelial@meta.data$celltype
+
+plot_grid((VlnPlot(basal_epithelial,features='CXCL14',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='KRT19',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='COL17A1',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='KRT15',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='DST',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='DCN',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='IL1R2',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='CLU',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='IFITM3',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='CCL2',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()))
+
+plot_grid((VlnPlot(basal_epithelial,features='S100A9',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='S100A8',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='KRT1',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='KRT6A',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='KRT13',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='SPRR1B',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='CSTA',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='LY6D',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='KRT6C',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()),
+(VlnPlot(cervixSvsB,features='SERPINB3',pt.size=0)+theme(axis.text.x=element_text(size=15))+NoLegend()))
+
+# YAP1 downstream gene UMAP expression feature plot
+FeaturePlot(epithelial, features = c('MYOF','AMOTL2','LATS2','CTGF','CYR61','ASAP1','AXL','F3','IGFBP3','CRIM1','FJX1','GADD45A','CCDC80','NT5E','DOCK5','PTPN14','ARHGEF17','NUAK2','TGFB2','RBMS3', raster = F, order = T)
+
+
