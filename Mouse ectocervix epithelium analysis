@@ -1,0 +1,103 @@
+library(Seurat)
+library(dplyr)
+
+# Road cellranger count processed data
+mouse_epithelial = Read10X('../mouse/outs/filtered_feature_bc_matrix')
+mouse_epithelial = CreateSeuratObject(counts = mouse_epithelial, project = "mouse_epithelial", min.features = 200, min.cells = 3)
+
+# Scrublet in python (remove doublet cells)
+import sys
+import os
+import scrublet as scr
+import scipy.io
+import numpy as np
+import pandas as pd
+from os.path import expanduser
+
+home = expanduser("~")
+input_dir = '../mouse/outs/filtered_feature_bc_matrix'
+out_dir = '../mouse'
+
+counts_matrix = scipy.io.mmread(input_dir + '/matrix.mtx').T.tocsc()
+genes = np.array(scr.load_genes(input_dir + '/features.tsv', delimiter = '\t', column = 1))
+barcodes = np.loadtxt(input_dir + '/barcodes.tsv', dtype = 'str')
+
+scrub = scr.Scrublet(counts_matrix, expected_doublet_rate = 0.06)
+doublet_scores, predicted_doublets = scrub.scrub_doublets(min_counts = 2, min_cells = 3, min_gene_variability_pctl = 85, n_prin_comps = 30)
+
+scrub_obs = pd.DataFrame({ "barcodes" : barcodes, "doublet_scores_obs" : scrub.doublet_scores_obs_, "threshold" : scrub.threshold_})
+scrub_sim = pd.DataFrame({ "doublet_scores_sim" : scrub.doublet_scores_sim_, "threshold" : scrub.threshold_})
+
+scrub_obs.to_csv(out_dir + "/scrublet.doublet_scores_obs.txt", index = False, header = None, sep = "\t")
+scrub_sim.to_csv(out_dir + "/scrublet.doublet_scores_sim.txt", index = False, header = None, sep = "\t")
+
+# Scrublet in R (remove doublet cells)
+cellranger.dir = '../mouse/outs/filtered_feature_bc_matrix'
+scrublet.script <- '../run_scrublet.py'
+outdir <- "../mouse"
+
+system(paste("../anaconda3/bin/python", scrublet.script, cellranger.dir, outdir, sep = " "))
+
+db.score <- read.table(file = paste0(outdir, "/scrublet.doublet_scores_obs.txt"), header = F, sep = "\t")
+colnames(db.score) <- c("barcodes", "scores", "threshold")
+
+# Embed scrublet results in seurat object
+doublet.file <- "../mouse/scrublet.doublet_scores_obs.txt"
+doublet.df <- read.table(doublet.file , header = F, sep = "\t")
+colnames(doublet.df) <- c("barcodes", "scores", "threshold")
+doublet.df$Doublet <- "singlet"
+doublet.df$Doublet[doublet.df$scores > doublet.df$threshold] <- "doublet"
+doublet.df$barcodes <- do.call(rbind, strsplit(x = as.character(doublet.df$barcodes), split = "\\-"))
+metadata = data.frame(barcodes = rownames(mouse_epithelial@meta.data), mouse_epithelial@meta.data)
+metadata$barcodes = do.call(rbind, strsplit(rownames(metadata), split = '\\-'))
+test <- join(metadata, doublet.df, by = "barcodes")
+mouse_epithelial@meta.data$Doublet <- test$Doublet
+
+# QC
+mouse_epithelial[["percent.mt"]] <- PercentageFeatureSet(mouse_epithelial, pattern = "^Mt-")
+VlnPlot(object = mouse_epithelial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+mouse_epithelial <- subset(x = mouse_epithelial, subset = nFeature_RNA > 200 & percent.mt < 25)
+mouse_epithelial <- NormalizeData(object = mouse_epithelial, normalization.method = "LogNormalize", scale.factor = 10000)
+mouse_epithelial <- FindVariableFeatures(mouse_epithelial, selection.method = "vst", nfeatures = 2000)
+mouse_epithelial <- ScaleData(object = mouse_epithelial, vars.to.regress = c('percent.mt'), features = rownames(mouse_epithelial))
+mouse_epithelial <- RunPCA(mouse_epithelial)
+
+# Find proper PCs
+pct <- mouse_epithelial[["pca"]]@stdev / sum(mouse_epithelial[["pca"]]@stdev) * 100
+
+cumu <- cumsum(pct)
+co1 <- which(cumu > 90 & pct < 5)[1]
+co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = T)[1] + 1
+pcs <- min(co1, co2)
+plot_df <- data.frame(pct = pct, cumu = cumu, rank = 1:length(pct))
+
+ggplot(plot_df, aes(cumu, pct, label = rank, color = rank > pcs)) +
+  geom_text() +
+  geom_vline(xintercept = 90, color = "grey") +
+  geom_hline(yintercept = min(pct[pct > 5]), color = "grey") +
+  theme_bw()
+
+# Dims
+mouse_epithelial <- RunUMAP(mouse_epithelial, dims = 1:15)
+mouse_epithelial <- FindNeighbors(mouse_epithelial, dims = 1:15)
+mouse_epithelial <- FindClusters(mouse_epithelial, resolution = 0.5)
+
+# Cell cycle gene scoring
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+mouse_epithelial <- CellCycleScoring(mouse_epithelial, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+DimPlot(mouse_epithelial, group.by='Phase', reduction='umap',label=T)
+
+# Assign cell type annotation to each cluster
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==0] <- 'Basal'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==1] <- 'Basal'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==2] <- 'Blood Cells'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==3] <- 'Suprabasal'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==4] <- 'Suprabasal'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==5] <- 'Basal'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==6] <- 'Proliferating'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==7] <- 'Blood Cells'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==8] <- 'Proliferating'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==9] <- 'Basal'
+mouse_epithelial@meta.data$celltype[mouse_epithelial@meta.data$seurat_clusters==10] <- 'Blood Cells'
+
