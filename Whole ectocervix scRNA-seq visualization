@@ -1,0 +1,35 @@
+## UMAP projection
+# Clustering by cluster numbers
+DimPlot(cervix, group.by='seurat_clusters',label = T, label.size = 5) + NoLegend()
+# Clustering by celltype names
+DimPlot(cervix, group.by='celltype',label = T, label.size = 5) + NoLegend()
+
+# Pie chart
+group <- c('Epithelial','Immune','Endothelial')
+value <- c(94.3,5.5,0.2)
+df <- data.frame(group, value)
+
+ggplot(df, aes(x='',y=value,fill=group))
++geom_bar(width=0.1,stat='identity',color='white')
++coord_polar('y')
++theme_void()
++theme(legend.text=element_text(size=25, color="black"))
++scale_fill_manual(values=c("#33CC00", "#0099FF", "#FF6666"))
+
+## Heat map
+# Obtain cell type specific Differentially expressed genes.
+cervixDEGs <- FindAllMarkers(object = cervix, only.pos = T, min.pct = 0.25, logfc.threshold = 0.25)
+
+DoHeatmap(object = cervix, features = c('KRT1','S100A8','S100A9','KRT6A','SPINK5','CCL5','VIM','CCL4','S100A4','PTPRC','SELE','ACKR1','IGFBP7','CSF3','CYP1B1')) 
++NoLegend()
++theme(text = element_text(size = 15))
+
+# Immune, Endothelial Heat map
+immune_endothelial <- subset(x = cervix, subset = celltype == c('Immune','Endothelial'))
+DoHeatmap(object = cervix, features = c('CCL5','VIM','CCL4','S100A4','PTPRC','SELE','ACKR1','IGFBP7','CSF3','CYP1B1')) 
++NoLegend()
++theme(text = element_text(size = 15))
+
+# UMAP expression plot of representative ectocervix cell type marker genes
+FeaturePlot(cervix, features = c('EPCAM','PECAM1','PTPRC','COL1A1','MSLN'), raster = F, order = T) + NoLegend()
+
