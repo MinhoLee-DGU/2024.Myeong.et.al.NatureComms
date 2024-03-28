@@ -1,0 +1,47 @@
+# Heatmap
+library(pheatmap)
+pheatmap(rawdata[(mat[,2]),],
+         cluster_cols = T,treeheight_row=0,
+         cluster_rows = T,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         show_rownames = F,
+         show_colnames = T,
+         fontsize = 25,
+         family = 'Arial',
+         border_color = NA,scale = "row".
+         family = 'Arial',
+         color = colors, clustering_method='ward.D')
+
+# Volcano plot
+mat$diffexpressed<-'NO'
+mat$diffexpressed[mat$Log_fold_change > 1]<-'UP'
+mat$diffexpressed[mat$Log_fold_change < (-1)]<-'DOWN'
+mat$delabel<-NA
+mat$delabel[mat$diffexpressed != "NO"] <- mat$Gene_Name[mat$diffexpressed != "NO"]
+
+ggplot(data=mat, aes(x=Log_fold_change, y=-(Log10_Pvalue), col=diffexpressed, label=delabel)) +
+     geom_point() + 
+     theme_minimal() +
+     geom_text_repel(size=7) +
+     scale_color_manual(values=c("blue", "black", "red")) +
+     geom_vline(xintercept=c(-1, 1), col="red") +
+     geom_hline(yintercept=-log10(0.05), col="red")
+
+# GSEA bar plot
+GOBP_#VP/#LA/#HCl/#Control_GSEA <- readRDS('../GOBP_#VP/#LA/#HCl/#Control_GSEA.RDS')
+ggplot(GOBP_#VP/#LA/#HCl/#Control_GSEA, aes(x=NAME, y=NES, fill = group))+
+  geom_bar(stat="identity", color = "black") +
+  scale_fill_manual(values = c('#00BFC4','#F8766D'))+
+  coord_flip()+
+  theme_bw()+
+  xlab("") +
+  ylab("NES")+
+  ggtitle('GOBP_#VP/#LA/#HCl/#Control_GSEA')+
+  theme_bw() +
+  theme(plot.title = element_text(size = 30, family = 'Arial'), legend.text = element_text(size = 25, family = 'Arial')) + 
+  theme(axis.title.x = element_text(size = 25, family = 'Arial'), axis.title.y = element_text(size = 25, family = 'Arial')) + theme(legend.title = element_blank()) +
+  theme(axis.text.x = element_text(size = 25, family = 'Arial'), axis.text.y = element_text(size =26, family = 'Arial'))
+
+## PCA dimensional plot
+# 50-62 lines in 'RNA-seq processing' code file
