@@ -1,0 +1,30 @@
+## UCell analysis
+library(UCell)
+# Subset only basal and suprabasal cells
+basal_epithelial <- subset(x = epithelial, subset = celltype == c('Basal','Suprabasal'))
+
+HIPPO_signaling_genes <- readRDS('../HIPPO_signaling_genes.RDS')
+signatures = list(HIPPO = HIPPO_signaling_genes)
+my.matrix = basal_epithelial[["RNA"]]@data
+my.matrix<-as.data.frame(my.matrix)
+u.scores = ScoreSignatures_UCell(my.matrix, features = signatures)
+basal_epithelial = AddMetaData(basal_epithelial, metadata = as.data.frame(u.scores))
+
+VlnPlot(basal_epithelial, features=c('HIPPO_UCell'), group.by='celltype', slot = 'data', assay = 'RNA', pt.size=0)+scale_y_continuous(limits=c(0,0.15)) + 
+theme_bw() + 
+theme(axis.text.x = element_blank()) + 
+stat_compare_means(label.y = 0.5) + 
+stat_compare_means(method='wilcox.test')
+
+YAP_signaling_genes <- readRDS('../YAP_signaling_genes.RDS')
+signatures = list(YAP = YAP_signaling_genes)
+my.matrix = basal_epithelial[["RNA"]]@data
+my.matrix<-as.data.frame(my.matrix)
+u.scores = ScoreSignatures_UCell(my.matrix, features = signatures)
+basal_epithelial = AddMetaData(basal_epithelial, metadata = as.data.frame(u.scores))
+
+VlnPlot(basal_epithelial, features=c('YAP_UCell'), group.by='celltype', slot = 'data', assay = 'RNA', pt.size=0)+scale_y_continuous(limits=c(0,0.15)) + 
+theme_bw() + 
+theme(axis.text.x = element_blank()) + 
+stat_compare_means(label.y = 0.5) + 
+stat_compare_means(method='wilcox.test')
