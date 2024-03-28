@@ -1,0 +1,99 @@
+# Loading Data into R 
+working_dir = "../workspace/rnaseq/de/htseq_counts"
+
+#Read in gene mapping
+mapping=read.table("../workspace/rnaseq/de/htseq_counts/ENSG_ID2Name.txt", header=FALSE, stringsAsFactors=FALSE, row.names=1)
+
+# Read in count matrix
+rawdata=read.table("../workspace/rnaseq/expression/htseq_counts/gene_read_counts_table_all_final.tsv", header=TRUE, stringsAsFactors=FALSE, row.names=1)
+
+# Require at least 25% of samples to have count > 25
+quant <- apply(rawdata,1,quantile,0.75)
+keep <- which((quant >= 25) == 1)
+rawdata <- rawdata[keep,]
+
+## ComBatseq (remove three time replicated sample batch effect)
+# Check sample bias on PCA plot before conduct ComBatseq
+colnames(rawdata)<-c('1st-#Control/#HCl','2nd-#Control/#HCl','3rd-#Control/#HCl','1st-#VP/LA','2nd-#VP/LA','3rd-#VP/LA')
+sample_names<-colnames(rawdata)
+rawdata->uncorrected
+conditions<-c('#Control/#HCl','#Control/#HCl','#Control/#HCl','#VP/LA','#VP/LA','#VP/LA')
+library_methods=c('1st','2nd','3rd','1st','2nd','3rd')
+replicates<-c(1,1,1,1,1,1)
+pca_uncorrected<-prcomp(rawdata)
+pca_uncorrected<-as.data.frame(pca_uncorrected[2]$rotation)
+pca_uncorrected[,'condition']=conditions
+pca_uncorrected[,'library_method']=library_methods
+pca_uncorrected[,'replicate']=replicates
+cols <- c("#Control/#HCl" = "#481567FF", "#VP/#LA" = "#1F968BFF")
+
+p1 = ggplot(data=pca_uncorrected, aes(x=PC1, y=PC2, color=condition, shape=library_method),)
+p1 = p1 + geom_point(size=8)
+p1 = p1 + stat_ellipse(type="norm", linetype=2)
+p1 = p1 + labs(title="PCA, RNA-seq counts 6 Library samples (uncorrected data)", color="Condition", shape="Library Method")
+p1 = p1 + scale_colour_manual(values = cols)
+p1
+
+# Run ComBatseq
+groups = sapply(as.character(conditions), switch, "#Control/#HCl" = 1, "#VP/#LA" = 2, USE.NAMES = F)
+batches = sapply(as.character(library_methods), switch, "1st" = 1, "2nd" = 2,"3rd" = 3, USE.NAMES = F)
+corrected_data = ComBat_seq(counts = as.matrix(rawdata[,sample_names]), batch = batches, group = groups)
+
+# Check sample bias on PCA plot after conduct ComBatseq
+pca_corrected_obj = prcomp(corrected_data[,sample_names])
+pca_corrected = as.data.frame(pca_corrected_obj[2]$rotation)
+pca_corrected_past2[,"condition"] = conditions
+pca_corrected_past2[,"library_method"] = library_methods
+pca_corrected_past2[,"replicate"] = replicates
+cols <- c("#Control/#HCl" = "#00CCCC", "#VP/#LA" = "#FF6666")
+
+p2 = ggplot(data=pca_corrected_past2, aes(x=PC1, y=PC2, color=condition, shape=library_method))
+p2 = p2 + geom_point(size=8)
+p2 = p2 + stat_ellipse(type="norm", linetype=2)
+p2 = p2 + labs(title="PCA, RNA-seq counts 6 Library samples (batch corrected data)", color="Condition", shape="Library Method")
+p2 = p2 + scale_colour_manual(values = cols)
+p2 = p2 + theme(axis.text.x = element_text(size = 15, family = 'Arial'))
+p2 = p2 + theme(axis.text.y = element_text(size = 15, family = 'Arial'))
+p2 = p2 + theme(axis.title.x = element_text(size = 17, family = 'Arial'))
+p2 = p2 + theme(axis.title.y = element_text(size = 17, family = 'Arial'))
+p2 = p2 +  theme(plot.title = element_text(size = 15, family = 'Arial'),legend.text = element_text(size = 15, family = 'Arial'),legend.title=element_text(size=15,family='Arial'))
+p2
+
+# edgeR differential expression analysis
+library(edgeR)
+
+# make class labels
+class <- factor( c( rep("#VP/#LA",3), rep("#Control/#HCL",3) ))
+
+# Get common gene names
+rawdata <- corrected_data
+genes=rownames(rawdata)
+gene_names=mapping[genes,1]
+
+# Make DGEList object
+y <- DGEList(counts=rawdata, genes=genes, group=class)
+
+# TMM Normalization
+y <- calcNormFactors(y)
+
+# Estimate dispersion
+y <- estimateCommonDisp(y, verbose=TRUE)
+y <- estimateTagwiseDisp(y)
+
+# Differential expression test
+et <- exactTest(y)
+
+# Matrix of significantly DE genes
+mat <- cbind(
+ genes,gene_names,
+ sprintf('%0.3f',log10(et$table$PValue)),
+ sprintf('%0.3f',et$table$logFC)
+)[as.logical(de),]
+colnames(mat) <- c("Gene", "Gene_Name", "Log10_Pvalue", "Log_fold_change")
+
+# Order by log fold change
+o <- order(et$table$logFC[as.logical(de)],decreasing=TRUE)
+mat <- mat[o,]
+
+# Save table
+write.table(mat, file="../workspace/rnaseq/DEG_list_#VP/#LA.txt", quote=FALSE, row.names=FALSE, sep="\t")
